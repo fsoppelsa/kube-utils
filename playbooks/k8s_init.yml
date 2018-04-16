@@ -1,0 +1,116 @@
+# /usr/bin/ansible-playbook -i inventory -u centos --sudo --sudo-user root k8s_init.yml
+---
+- name: Setup a K8s master
+  hosts: all
+  gather_facts: False
+  become: true
+  become_user: root
+
+  pre_tasks:
+    - name: Install python2
+      raw: sudo dnf -y install python2-dnf dnf-plugins-core libselinux-python firewalld python3-firewall
+
+  tasks:
+#    - name: SELinux stop
+#      raw: "setenforce 0"
+
+    - name: SELinux setup
+      ini_file:
+        dest: /etc/sysconfig/selinux
+        section:
+        option: SELINUX
+        value: disabled
+
+  - name: Sysctl settings
+    sysctl:
+      name: net.bridge.bridge-nf-call-iptables
+      value: 1
+      state: present
+      sysctl_set: yes
+      reload: yes
+
+    - name: Enable some service ports
+      raw: " {{ item }} "
+      with_items:
+        - "firewall-cmd --permanent --add-port=6443/tcp"
+        - "firewall-cmd --permanent --add-port=2379-2380/tcp"
+        - "firewall-cmd --permanent --add-port=10250/tcp"
+        - "firewall-cmd --permanent --add-port=10251/tcp"
+        - "firewall-cmd --permanent --add-port=10252/tcp"
+        - "firewall-cmd --permanent --add-port=10255/tcp"
+        - "firewall-cmd --reload"
+        - "modprobe br_netfilter"
+        - "echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables"
+        - "mkdir -p /etc/docker"
+        - "swapoff -a"
+
+    - name: K8s repo setup
+      copy:
+        src: k8srepo.txt
+        dest: /etc/yum.repos.d/kubernetes.repo
+        owner: root
+        group: root
+
+    - name: Add Docker-CE repos
+      command: dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+
+## OPTIONAL
+##    - name: Enable CE-Edge
+##      command: dnf config-manager --set-enabled docker-ce-edge
+
+    - name: Install Docker-CE
+      dnf:
+        name: docker-ce-17.03.1.ce
+        disable_gpg_check: yes
+
+    - name: Tweak Docker cgroup
+      copy:
+        src: daemon.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+
+    - name: Install Kubernetes
+      dnf:
+        name: "{{ item }}"
+        state: latest
+      with_items:
+        - "kubeadm-1.9.1"
+        - etcd
+        - flannel
+
+    - name: Enable services
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      with_items:
+        - kubelet
+        - docker
+        - etcd
+
+##    - name: Init K8s
+##      raw: "kubeadm init"
+
+    - name: Copy flannel etcd conf
+      copy:
+        src: flannel-config.json
+        dest: /root/flannelconfig.json
+        owner: root
+        group: root
+
+    - name: Copy flanneld conf
+      copy:
+        src: flanneld
+        dest: /etc/sysconfig/flanneld
+        owner: root
+        group: root
+
+    - name: Configure flannel
+      raw: "etcdctl set /coreos.com/network/config < /root/flannelconfig.json"
+
+    - name: Enable flannel
+      systemd:
+        name: flanneld
+        enabled: yes
+        state: started

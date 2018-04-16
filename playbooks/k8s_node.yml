@@ -1,0 +1,86 @@
+# /usr/bin/ansible-playbook -i inventory -u centos --sudo --sudo-user root k8s_init.yml
+---
+- name: Setup a K8s node
+  hosts: all
+  gather_facts: False
+  become: true
+  become_user: root
+
+  pre_tasks:
+    - name: Install python2
+      raw: sudo dnf -y install python2-dnf dnf-plugins-core libselinux-python
+
+  tasks:
+    - name: SELinux stop
+      command: "setenforce 0"
+
+    - name: SELinux setup
+      ini_file:
+        dest: /etc/sysconfig/selinux
+        section:
+        option: SELINUX
+        value: disabled
+
+    - name: Sysctl settings
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: 1
+        state: present
+        sysctl_set: yes
+        reload: yes
+
+    - name: Enable some service ports
+      raw: " {{ item }} "
+      with_items:
+        - "firewall-cmd --permanent --add-port=2379-2380/tcp"
+        - "firewall-cmd --permanent --add-port=10250/tcp"
+        - "firewall-cmd --permanent --add-port=6783/tcp"
+        - "firewall-cmd --permanent --add-port=30000-32767/tcp"
+        - "firewall-cmd --permanent --add-port=10255/tcp"
+        - "firewall-cmd --reload"
+        - "modprobe br_netfilter"
+        - "echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables"
+        - "swapoff -a"
+        - "mkdir -p /etc/docker"
+
+    - name: K8s repo setup
+      copy:
+        src: k8srepo.txt
+        dest: /etc/yum.repos.d/kubernetes.repo
+        owner: root
+        group: root
+
+    - name: Add Docker-CE repos
+      command: dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+
+##    - name: Enable CE-Edge
+##      command: dnf config-manager --set-enabled docker-ce-edge
+
+    - name: Install Docker-CE
+      dnf:
+        name: docker-ce-17.03.1.ce
+        disable_gpg_check: yes
+
+    - name: Tweak Docker cgroup
+      copy:
+        src: daemon.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+
+    - name: Install Kubernetes
+      dnf:
+        name: "{{ item }}"
+        state: latest
+      with_items:
+        - "kubelet-1.9.1"
+        - "kubeadm-1.9.1"
+
+    - name: Enable services
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      with_items:
+        - kubelet
+        - docker

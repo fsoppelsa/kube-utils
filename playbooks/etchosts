@@ -1,0 +1,8 @@
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+10.20.0.5 kmaster1 kmaster1.k8s
+10.20.0.7 knode1 knode1.k8s
+10.20.0.3 knode2 knode2.k8s
+10.20.0.6 knode3 knode3.k8s
+10.20.0.8 knode4 knode4.k8s
+10.20.0.4 knode5 knode5.k8s

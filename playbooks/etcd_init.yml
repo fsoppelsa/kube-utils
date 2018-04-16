@@ -1,0 +1,39 @@
+# /usr/bin/ansible-playbook -i inventory -u centos --sudo --sudo-user root k8s_init.yml
+---
+- name: Setup Etcd
+  hosts: all
+  gather_facts: false
+  become: true
+  become_user: root
+
+  pre_tasks:
+    - name: Install python2
+      raw: sudo dnf -y install python2-dnf
+
+  tasks:
+    - name: SELinux stop
+      command: "setenforce 0"
+
+    - name: SELinux setup
+      ini_file:
+        dest: /etc/sysconfig/selinux
+        section:
+        option: SELINUX
+        value: disabled
+
+    - name: Install etcd and libselinux
+      dnf:
+        name: "{{ item }}"
+        state: latest
+        disable_gpg_check: yes
+      with_items:
+        - etcd
+        - libselinux-python
+
+    - name: Enable etcd
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      with_items:
+        - etcd
